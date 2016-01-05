@@ -1,0 +1,128 @@
+CREATE OR REPLACE FUNCTION NbStagiaire return INT IS
+
+nbEtuStagiaire INT :=0 ; --variable retournée en fin, contient le nombr d'étudiant avec stage pour l'année en cours
+  BEGIN 
+    
+     SELECT COUNT (*) INTO nbEtuStagiaire
+     FROM Etudiant
+     WHERE Etudiant.stage.num IS NOT NULL  		-- on fait la jointure entre la table ETUDIANT et STAGE
+     AND EXTRACT (YEAR FROM Etudiant.stage.dateSage) = EXTRACT (YEAR FROM SYSDATE);	    -- On l'année du stage de l'étudiant = l'année en cours
+ 
+ RETURN nbEtuStagiaire;
+  
+END;
+
+CREATE OR REPLACE FUNCTION NbnonStagiaire   return INT IS
+
+nbEtuSansStage INT :=0 ; --variable retournée en fin, contient le nombr d'étudiant avec stage pour l'année en cours
+  BEGIN 
+    
+     SELECT COUNT (*) INTO nbEtuSansStage
+     FROM Etudiant
+     WHERE Etudiant.stage.num IS  NULL  		-- on fait la jointure entre la table ETUDIANT et STAGE
+     AND EXTRACT (YEAR FROM Etudiant.stage.dateSage) = EXTRACT (YEAR FROM SYSDATE);	    -- On l'année du stage de l'étudiant = l'année en cours
+ 
+ RETURN nbEtuSansStage;
+  
+END;
+
+CREATE OR REPLACE TRIGGER TRG_etu 
+AFTER INSERT OR UPDATE ON Etudiants 
+FOR EACH ROW BEGIN UPDATE STATISTIQUES 
+SET Stagiaire = NbStagiaire(), nonStagiaire = NbnonStagiaire(), nonStagiaireA=nonStagiaireA();
+dbms_output.put_line('Valeurs de la table STATISTIQUES mises a jour.');
+END; 
+/
+
+CREATE OR REPLACE FUNCTION NbnonStagiaireA(dateAnnee DATE)  return INT IS
+nbEtuSansStageA INT :=0 ; --variable retournée en fin, contient le nombr d'étudiant sans stage pour l'année entrée par l'utilisateur
+  BEGIN
+ SELECT COUNT (*) INTO nbEtuSansStageA
+     FROM Etudiant
+     WHERE Etudiant.stage.num IS  NULL  		-- on fait la jointure entre la table ETUDIANT et STAGE
+     AND EXTRACT (YEAR FROM Etudiant.stage.dateSage) = EXTRACT (YEAR FROM dateAnnee);	    -- On l'année du stage de l'étudiant = l'année en cours
+ 
+ RETURN nbEtuSansStageA;
+  
+END;
+/
+
+CREATE OR REPLACE FUNCTION  stagiaireParEntreprise(annee INTEGER) RETURN SYS_REFCURSOR IS
+DECLARE
+	curseur SYS_REFCURSOR;
+BEGIN
+	-- Ouverture du curseur
+	OPEN curseur FOR
+		-- Requete SQL
+		SELECT En.nom, COUNT(*)
+		FROM ETUDIANT Et, ENTREPRISE En
+		WHERE Et.stage.num=En.num
+		AND YEAR(Et.stage.dateStage) >= YEAR(SYSDATE) - annee
+		GROUP BY En.nom, Et.num;
+	RETURN curseur;
+END;
+
+
+CREATE OR REPLACE FUNCTION moyStagiaireA(annee INTEGER) RETURN FLOAT IS
+DECLARE
+	moyenne FLOAT;
+BEGIN
+	-- Requete SQL
+	SELECT AVG(num) INTO moyenne
+	FROM ETUDIANT E
+	WHERE E.finScol >= YEAR(SYSDATE) - annee
+	GROUP BY E.num;
+		
+	RETURN moyenne;
+
+END;
+
+CREATE OR REPLACE FUNCTION stageParZoneA(recherche VARCHAR2(20)) RETURN INTEGER IS
+DECLARE
+	nbStage INTEGER;
+	-- Curseur de toutes les entreprises qui ont un stage
+	CURSOR curEntr IS
+		SELECT En.num 
+		FROM ENTREPRISE En, ETUDIANT Et
+		WHERE En.num = Et.stage.num;
+BEGIN
+	-- Creation d'une vue qui rassemble tous les types d'adresses des entreprises qui ont un stage dans une seule colonne
+	CREATE VIEW V_RECHERCHE AS
+		SELECT En.adresse.Ville FROM ENTREPRISE WHERE En.num IN curEntr AS i
+		UNION
+		SELECT En.adresse.Departement FROM ENTREPRISE WHERE En.num IN curEntr AS i
+		UNION
+		SELECT En.adresse.Pays FROM ENTREPRISE WHERE En.num IN curEntr AS i;
+	
+	-- Recherche 
+	SELECT COUNT(*) INTO nbStage
+	FROM V_RECHERCHE
+	WHERE i = recherche;
+	
+	
+	RETURN nbStage;
+END;
+
+CREATE OR REPLACE FUNCTION toutStage RETURN SYS_REFCURSOR IS
+DECLARE
+	-- On compte tout les stages qui existent
+	CURSOR curStage IS
+		SELECT COUNT(*)
+		FROM ETUDIANT Et, ENTREPRISE En
+    WHERE Et.stage.num=En.num
+    GROUP BY En.adresse.pays,En.adresse.departement,En.adresse.ville
+BEGIN
+	RETURN curStage;
+END;
+
+CREATE OR REPLACE TYPE BODY ObStatistiqueTy IS
+MEMBER FUNCTION entrepStage(annee INTEGER) RETURN SYS_REFCURSOR IS
+DECLARE
+	CURSOR curEntr IS
+		SELECT nom, contacte 
+    FROM ENTREPRISE En, ETUDIANT Et
+		WHERE Et.stage.num=En.num
+		AND EXTRACT(YEAR FROM Et.stage.dateStage) >= EXTRACT(YEAR FROM SYSDATE) - annee;
+BEGIN
+	RETURN curEntr;
+END;
